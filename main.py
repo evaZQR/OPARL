@@ -3,18 +3,18 @@ import torch
 import gym
 import argparse
 import os
-import random
-# import train as train
+import dm_control
+import dmc2gym
 import utils
 import TD3
 import OurDDPG
 import DDPG
 from einops import rearrange, reduce, repeat
-
 count = 0
 parser = argparse.ArgumentParser()
 parser.add_argument("--policy", default="TD3")  # Policy name (TD3, DDPG or OurDDPG)
-parser.add_argument("--env", default="hopper-hop")  # OpenAI gym environment name
+parser.add_argument("--domain_name", default="hopper")
+parser.add_argument("--task_name", default="stand")
 parser.add_argument("--seed", default=233, type=int)  # Sets Gym, PyTorch and Numpy seeds
 parser.add_argument("--start_timesteps", default=25e3, type=int)  # Time steps initial random policy is used
 parser.add_argument("--eval_freq", default=5e3, type=int)  # How often (time steps) we evaluate
@@ -43,8 +43,8 @@ def create_directory_if_not_exists(path):
         print(f"Directory already exists: {path}")
 # Runs policy for X episodes and returns average reward
 # A fixed seed is used for the eval environment
-def eval_policy(policy, env_name, seed, eval_episodes=10):
-    eval_env = gym.make(env_name)
+def eval_policy(policy, domain_name, task_name, seed, eval_episodes=10):
+    eval_env = make_env(domain_name=args.domain_name, task_name=args.task_name, seed=args.seed)
     eval_env.seed(seed + 100)
     global count
     avg_reward = 0.
@@ -60,19 +60,22 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
     print("---------------------------------------")
     print(f"Evaluation over {eval_episodes} episodes: {avg_reward:.3f}")
     print("---------------------------------------")
-    with open(f"N={args.N}_seed={args.seed}_result.txt", "a") as file:
+    with open(f"seed={args.seed}_result.txt", "a") as file:
         file.write(f"Timesteps {count} Evaluation over {eval_episodes} episodes: {avg_reward:.3f}\n")
     count += 5000
     return avg_reward
 
+def make_env(domain_name, task_name, seed):
+    env = dmc2gym.make(domain_name=domain_name, task_name=task_name, seed=seed, from_pixels=False,  visualize_reward=False)
+    return env
 
 if __name__ == "__main__":
     
-    with open(f"N={args.N}_seed={args.seed}_result.txt", "a") as file:
-        file.write(f"policy:{args.policy} env:{args.env} seed:{args.seed} policy_utd:{args.policy_utd} policy_interval:{args.policy_interval} reset_freq:{args.reset_freq} qnum:{args.qnum} N:{args.N} bili:{args.bili}\n")
-    file_name = f"{args.policy}_{args.env}_{args.seed}_{args.policy_utd}_{args.policy_interval}_{args.reset_freq}_{args.qnum}"
+    with open(f"seed={args.seed}_result.txt", "a") as file:
+        file.write(f"policy:{args.policy} Domain: {args.domain_name} Task: {args.task_name} seed:{args.seed} policy_utd:{args.policy_utd} policy_interval:{args.policy_interval} reset_freq:{args.reset_freq} qnum:{args.qnum} N:{args.N} bili:{args.bili}\n")
+    file_name = f"{args.policy}_Domain: {args.domain_name}_Task: {args.task_name}_{args.seed}_{args.policy_utd}_{args.policy_interval}_{args.reset_freq}_{args.qnum}"
     print("---------------------------------------")
-    print(f"Policy: {args.policy}, Env: {args.env}, Seed: {args.seed}")
+    print(f"Policy: {args.policy}, Domain: {args.domain_name}, Task: {args.task_name}, Seed: {args.seed}")
     print("---------------------------------------")
 
     if not os.path.exists("./results"):
@@ -81,7 +84,7 @@ if __name__ == "__main__":
     if args.save_model and not os.path.exists("./models"):
         os.makedirs("./models")
 
-    env = gym.make(args.env)
+    env = make_env(domain_name=args.domain_name, task_name=args.task_name, seed=args.seed)
 
     # Set seeds
     env.seed(args.seed)
@@ -120,7 +123,7 @@ if __name__ == "__main__":
     interval = args.policy_interval
 
     # Evaluate untrained policy
-    evaluations = [eval_policy(policy, args.env, args.seed)]
+    evaluations = [eval_policy(policy,args.domain_name,args.task_name, args.seed)]
 
     state, done = env.reset(), False
     episode_reward = 0
@@ -186,7 +189,7 @@ if __name__ == "__main__":
 
         if done:
             # +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
-            print(f"Total T: {t + 1} Gradient Time: {gradient_steps} Episode Num: {episode_num + 1} Episode T: {episode_timesteps} Reward: {episode_reward:.4f}")
+            print(f"Total T: {t + 1} Gradient Time: {gradient_steps} Episode Num: {episode_num + 1} Episode T: {episode_timesteps} Reward: {episode_reward:.5f}")
             # Reset environment
             state, done = env.reset(), False
             episode_reward = 0
@@ -197,6 +200,6 @@ if __name__ == "__main__":
 
         # Evaluate episode
         if (t + 1) % args.eval_freq == 0:
-            evaluations.append(eval_policy(policy, args.env, args.seed))
+            evaluations.append(eval_policy(policy, args.domain_name,args.task_name, args.seed))
             np.save(f"./results/{file_name}", evaluations)
             if args.save_model: policy.save(f"./models/{file_name}")
